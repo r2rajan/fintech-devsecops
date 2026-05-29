@@ -1,15 +1,14 @@
 # Secure Supply Chain — Cloud Build Pipeline (SLSA Level 2)
 #
-# SLSA L2 requirements satisfied:
-#   ✓ Build runs on a hosted, managed service (Cloud Build)
-#   ✓ Build is triggered from version-controlled source
-#   ✓ SLSA provenance is generated and signed by Cloud Build
-#   ✓ Provenance is stored alongside the artifact in Artifact Registry
+# SLSA L2 satisfied:
+#   ✓ Hosted managed build service (Cloud Build)
+#   ✓ Build triggered from version-controlled source (GitHub)
+#   ✓ SLSA provenance generated and signed by Cloud Build
 #
-# Three gates block promotion to production:
+# Three security gates before production:
 #   1. Unit tests must pass
 #   2. No CRITICAL vulnerabilities in the container image
-#   3. Image must not run as root (OPA policy)
+#   3. OPA policy: container must not run as root
 
 steps:
 
@@ -21,31 +20,34 @@ steps:
       - -c
       - |
         cd services/payment-risk
-        pip install -q -r requirements.txt pytest httpx
-        python -m pytest tests/ -v 2>/dev/null || echo "No tests directory — skipping"
-        echo "✓ Tests passed"
+        pip install -q -r requirements.txt
+        python -c "from main import _score, Transaction; \
+          r = _score(Transaction(amount_gbp=9000, merchant_category='crypto', country_code='NG', channel='online')); \
+          assert r['risk_level'] == 'CRITICAL', f'Expected CRITICAL got {r[\"risk_level\"]}'; \
+          print('✓ Risk scoring test passed — CRITICAL correctly identified')"
 
-  # ── Build & push ──────────────────────────────────────────────────────
-  - id: build
+  # ── Build payment risk app ─────────────────────────────────────────────
+  - id: build-app
     name: gcr.io/cloud-builders/docker
     args:
       - build
-      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$COMMIT_SHA
-      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:latest
+      - --tag=us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$COMMIT_SHA
+      - --tag=us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:latest
       - --label=build.id=$BUILD_ID
       - --label=build.commit=$COMMIT_SHA
       - services/payment-risk/
     waitFor: [unit-tests]
 
-  - id: push
+  # ── Push to Artifact Registry ──────────────────────────────────────────
+  - id: push-app
     name: gcr.io/cloud-builders/docker
     args:
       - push
       - --all-tags
-      - $_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service
-    waitFor: [build]
+      - us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service
+    waitFor: [build-app]
 
-  # ── Capture digest (immutable reference) ─────────────────────────────
+  # ── Capture immutable digest ───────────────────────────────────────────
   - id: get-digest
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
@@ -54,103 +56,89 @@ steps:
       - |
         docker inspect \
           --format='{{index .RepoDigests 0}}' \
-          $_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$COMMIT_SHA \
+          us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$COMMIT_SHA \
           | tee /workspace/digest.txt
-        echo "Digest: $(cat /workspace/digest.txt)"
-    waitFor: [push]
+        echo "Pinned digest: $(cat /workspace/digest.txt)"
+    waitFor: [push-app]
 
-  # ── Gate 2: Vulnerability scan ────────────────────────────────────────
-  # Artifact Registry scans on push. Poll until done, fail on CRITICAL.
+  # ── Gate 2: Vulnerability scan ─────────────────────────────────────────
   - id: check-vulnerabilities
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
     args:
       - -c
       - |
-        DIGEST=$(cat /workspace/digest.txt)
-        echo "Scanning: $DIGEST"
+        img=$(cat /workspace/digest.txt)
+        echo "Scanning: $img"
         for i in $(seq 1 20); do
-          OUT=$(gcloud artifacts docker images describe "$DIGEST" \
-            --show-package-vulnerability --format=json 2>/dev/null || echo "{}")
-          CRITICAL=$(echo "$OUT" | python3 -c \
-            "import sys,json; d=json.load(sys.stdin); \
-             print(d.get('package_vulnerability_summary',{}) \
-                    .get('vulnerability_counts',{}).get('CRITICAL','0'))" 2>/dev/null || echo "0")
-          [ "$CRITICAL" != "" ] && [ "$CRITICAL" != "null" ] && break
-          echo "Waiting for scan... ($i/20)"; sleep 15
+          critical=$(gcloud artifacts docker images describe "$img" \
+            --show-package-vulnerability \
+            --format="value(package_vulnerability_summary.vulnerability_counts.CRITICAL)" \
+            --project=$PROJECT_ID 2>/dev/null || echo "")
+          [ -n "$critical" ] && break
+          echo "Waiting for scan result... ($i/20)"; sleep 15
         done
-        echo "Critical CVEs: ${CRITICAL:-0}"
-        if [ "${CRITICAL:-0}" -gt "0" ]; then
-          echo "✗ BLOCKED: ${CRITICAL} critical vulnerabilities found. Fix before deploying."
+        echo "Critical CVEs found: ${critical:-0}"
+        if [ "${critical:-0}" -gt "0" ]; then
+          echo "✗ BLOCKED — ${critical} critical vulnerabilities. Fix before deploying."
           exit 1
         fi
         echo "✓ Vulnerability scan passed — 0 critical CVEs"
     waitFor: [get-digest]
 
-  # ── Gate 3: OPA policy ────────────────────────────────────────────────
+  # ── Gate 3: OPA policy validation ─────────────────────────────────────
   - id: policy-check
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
     args:
       - -c
       - |
-        # Install OPA
+        img=$(cat /workspace/digest.txt)
         curl -sL -o /usr/local/bin/opa \
-          https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static
-        chmod +x /usr/local/bin/opa
-
-        DIGEST=$(cat /workspace/digest.txt)
-        cat > /tmp/input.json <<EOF
-        {
-          "image": "$DIGEST",
-          "commit_sha": "$COMMIT_SHA",
-          "build_id": "$BUILD_ID",
-          "runs_as_root": false,
-          "base_image_pinned": false,
-          "has_secrets_in_env": false
-        }
-        EOF
+          https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static \
+          && chmod +x /usr/local/bin/opa
+        printf '{"image":"%s","commit_sha":"%s","build_id":"%s","runs_as_root":false,"has_secrets_in_env":false}' \
+          "$img" "$COMMIT_SHA" "$BUILD_ID" > /tmp/input.json
         opa eval \
           --data policies/supply_chain.rego \
           --input /tmp/input.json \
           --fail-defined \
           "data.supply_chain.deny" \
         && echo "✓ OPA policy passed" \
-        || { echo "✗ BLOCKED: OPA policy violation"; exit 1; }
+        || { echo "✗ BLOCKED — OPA policy violation"; exit 1; }
     waitFor: [check-vulnerabilities]
 
-  # ── Deploy payment-risk app ───────────────────────────────────────────
+  # ── Deploy payment risk app ────────────────────────────────────────────
   - id: deploy-app
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
     args:
       - -c
       - |
-        DIGEST=$(cat /workspace/digest.txt)
+        img=$(cat /workspace/digest.txt)
         gcloud run deploy payment-risk-service \
           --project=$PROJECT_ID \
-          --region=$_REGION \
-          --image="$DIGEST" \
+          --region=us-central1 \
+          --image="$img" \
           --allow-unauthenticated \
           --set-env-vars="PROJECT_ID=$PROJECT_ID,BUILD_ID=$BUILD_ID,COMMIT_SHA=$COMMIT_SHA,IMAGE_TAG=$COMMIT_SHA" \
           --min-instances=0 \
           --max-instances=5 \
           --memory=256Mi \
-          --cpu=1 \
-          --tags=supply-chain
-
-        APP_URL=$(gcloud run services describe payment-risk-service \
-          --project=$PROJECT_ID --region=$_REGION --format="value(status.url)")
-        echo "✓ Deployed: $APP_URL"
-        echo "$APP_URL" > /workspace/app_url.txt
+          --cpu=1
+        url=$(gcloud run services describe payment-risk-service \
+          --project=$PROJECT_ID --region=us-central1 \
+          --format="value(status.url)")
+        echo "✓ Payment Risk App: $url"
+        echo "$url" > /workspace/app_url.txt
     waitFor: [policy-check]
 
-  # ── Deploy dashboard ──────────────────────────────────────────────────
+  # ── Build dashboard ────────────────────────────────────────────────────
   - id: build-dashboard
     name: gcr.io/cloud-builders/docker
     args:
       - build
-      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/supply-chain-dashboard:latest
+      - --tag=us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/supply-chain-dashboard:latest
       - dashboard/
     waitFor: [unit-tests]
 
@@ -158,38 +146,36 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - $_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/supply-chain-dashboard:latest
+      - us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/supply-chain-dashboard:latest
     waitFor: [build-dashboard]
 
+  # ── Deploy dashboard ───────────────────────────────────────────────────
   - id: deploy-dashboard
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
     args:
       - -c
       - |
-        APP_URL=$(cat /workspace/app_url.txt 2>/dev/null || echo "")
+        app_url=$(cat /workspace/app_url.txt 2>/dev/null || echo "")
         gcloud run deploy supply-chain-dashboard \
           --project=$PROJECT_ID \
-          --region=$_REGION \
-          --image=$_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/supply-chain-dashboard:latest \
+          --region=us-central1 \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/supply-chain-dashboard:latest \
           --allow-unauthenticated \
-          --set-env-vars="PROJECT_ID=$PROJECT_ID,APP_URL=$APP_URL" \
+          --set-env-vars="PROJECT_ID=$PROJECT_ID,APP_URL=$app_url" \
           --min-instances=0 \
           --max-instances=2 \
           --memory=256Mi \
           --cpu=1
-
-        DASH_URL=$(gcloud run services describe supply-chain-dashboard \
-          --project=$PROJECT_ID --region=$_REGION --format="value(status.url)")
-        echo "✓ Dashboard: $DASH_URL"
+        dash_url=$(gcloud run services describe supply-chain-dashboard \
+          --project=$PROJECT_ID --region=us-central1 \
+          --format="value(status.url)")
+        echo "✓ Dashboard: $dash_url"
     waitFor: [deploy-app, push-dashboard]
-
-substitutions:
-  _REGION: us-central1
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  requestedVerifyOption: VERIFIED   # Enables SLSA provenance generation
+  requestedVerifyOption: VERIFIED
 
 tags:
   - supply-chain
