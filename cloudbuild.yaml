@@ -31,10 +31,10 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - build
-      - --tag=us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$COMMIT_SHA
+      - --tag=us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$SHORT_SHA
       - --tag=us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:latest
       - --label=build.id=$BUILD_ID
-      - --label=build.commit=$COMMIT_SHA
+      - --label=build.commit=$SHORT_SHA
       - services/payment-risk/
     waitFor: [unit-tests]
 
@@ -56,7 +56,7 @@ steps:
       - |
         docker inspect \
           --format='{{index .RepoDigests 0}}' \
-          us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$COMMIT_SHA \
+          us-central1-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$SHORT_SHA \
           | tee /workspace/digest.txt
         echo "Pinned digest: $(cat /workspace/digest.txt)"
     waitFor: [push-app]
@@ -98,7 +98,7 @@ steps:
           https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static \
           && chmod +x /usr/local/bin/opa
         printf '{"image":"%s","commit_sha":"%s","build_id":"%s","runs_as_root":false,"has_secrets_in_env":false}' \
-          "$img" "$COMMIT_SHA" "$BUILD_ID" > /tmp/input.json
+          "$img" "$SHORT_SHA" "$BUILD_ID" > /tmp/input.json
         opa eval \
           --data policies/supply_chain.rego \
           --input /tmp/input.json \
@@ -121,7 +121,7 @@ steps:
           --region=us-central1 \
           --image="$img" \
           --allow-unauthenticated \
-          --set-env-vars="PROJECT_ID=$PROJECT_ID,BUILD_ID=$BUILD_ID,COMMIT_SHA=$COMMIT_SHA,IMAGE_TAG=$COMMIT_SHA" \
+          --set-env-vars="PROJECT_ID=$PROJECT_ID,BUILD_ID=$BUILD_ID,COMMIT_SHA=$SHORT_SHA,IMAGE_TAG=$SHORT_SHA" \
           --min-instances=0 \
           --max-instances=5 \
           --memory=256Mi \
