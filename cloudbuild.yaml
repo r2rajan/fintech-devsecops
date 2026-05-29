@@ -87,24 +87,23 @@ steps:
     waitFor: [get-digest]
 
   # ── Gate 3: OPA policy validation ─────────────────────────────────────
+  # Uses the official OPA container image — no curl download needed
   - id: policy-check
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: bash
+    name: openpolicyagent/opa
+    entrypoint: sh
     args:
       - -c
       - |
         img=$(cat /workspace/digest.txt)
-        curl -sL -o /usr/local/bin/opa \
-          https://openpolicyagent.org/downloads/latest/opa_linux_amd64_static \
-          && chmod +x /usr/local/bin/opa
-        printf '{"image":"%s","commit_sha":"%s","build_id":"%s","runs_as_root":false,"has_secrets_in_env":false}' \
-          "$img" "$SHORT_SHA" "$BUILD_ID" > /tmp/input.json
+        printf '{"image":"%s","build_id":"%s","commit_sha":"%s","runs_as_root":false,"has_secrets_in_env":false}' \
+          "$img" "$BUILD_ID" "$SHORT_SHA" > /tmp/input.json
+        echo "Policy input: $(cat /tmp/input.json)"
         opa eval \
           --data policies/supply_chain.rego \
           --input /tmp/input.json \
           --fail-defined \
           "data.supply_chain.deny" \
-        && echo "✓ OPA policy passed" \
+        && echo "✓ OPA policy passed — no violations" \
         || { echo "✗ BLOCKED — OPA policy violation"; exit 1; }
     waitFor: [check-vulnerabilities]
 
