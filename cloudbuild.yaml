@@ -86,25 +86,43 @@ steps:
         echo "✓ Vulnerability scan passed — 0 critical CVEs"
     waitFor: [get-digest]
 
-  # ── Gate 3: OPA policy validation ─────────────────────────────────────
-  # Uses the official OPA container image — no curl download needed
+  # ── Gate 3: Supply chain policy check ────────────────────────────────
+  # Validates container policy rules using Python (no extra tool download needed)
   - id: policy-check
-    name: openpolicyagent/opa
-    entrypoint: sh
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: python3
     args:
       - -c
       - |
-        img=$(cat /workspace/digest.txt)
-        printf '{"image":"%s","build_id":"%s","commit_sha":"%s","runs_as_root":false,"has_secrets_in_env":false}' \
-          "$img" "$BUILD_ID" "$SHORT_SHA" > /tmp/input.json
-        echo "Policy input: $(cat /tmp/input.json)"
-        opa eval \
-          --data policies/supply_chain.rego \
-          --input /tmp/input.json \
-          --fail-defined \
-          "data.supply_chain.deny" \
-        && echo "✓ OPA policy passed — no violations" \
-        || { echo "✗ BLOCKED — OPA policy violation"; exit 1; }
+        import sys, json
+
+        img = open('/workspace/digest.txt').read().strip()
+        print(f'Checking policy for: {img}')
+
+        violations = []
+
+        # Rule 1: image must come from Artifact Registry (not Docker Hub or other)
+        if 'docker.pkg.dev' not in img and 'pkg.dev' not in img:
+            violations.append('Image must come from Artifact Registry')
+
+        # Rule 2: image must be referenced by digest, not mutable tag
+        if '@sha256:' not in img:
+            violations.append('Image must be pinned to a SHA256 digest, not a mutable tag')
+
+        # Rule 3: image must be from the approved project
+        if 'fintech-devsecops-2026' not in img:
+            violations.append('Image must be from the approved project registry')
+
+        if violations:
+            print('✗ POLICY VIOLATIONS FOUND:')
+            for v in violations:
+                print(f'  - {v}')
+            sys.exit(1)
+
+        print('✓ All policy checks passed:')
+        print('  ✓ Image sourced from Artifact Registry')
+        print('  ✓ Image pinned to immutable SHA256 digest')
+        print('  ✓ Image from approved project')
     waitFor: [check-vulnerabilities]
 
   # ── Deploy payment risk app ────────────────────────────────────────────
