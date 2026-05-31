@@ -220,6 +220,9 @@ steps:
         echo "✓ Dashboard: $dash_url"
     waitFor: [deploy-app, push-dashboard]
 
+images:
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/payment-risk-service:$SHORT_SHA'
+
 substitutions:
   _REGION: us-central1
 
