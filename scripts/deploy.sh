@@ -23,6 +23,7 @@ gcloud services enable \
   containeranalysis.googleapis.com \
   run.googleapis.com \
   containerscanning.googleapis.com \
+  storage.googleapis.com \
   --project="$PROJECT_ID" --quiet
 
 # ── Artifact Registry ─────────────────────────────────────────────────────────
@@ -42,7 +43,8 @@ CB_SA="$(gcloud projects describe "$PROJECT_ID" \
   --format='value(projectNumber)')@cloudbuild.gserviceaccount.com"
 
 for role in roles/run.admin roles/artifactregistry.writer \
-            roles/iam.serviceAccountUser containeranalysis.occurrences.editor; do
+            roles/iam.serviceAccountUser containeranalysis.occurrences.editor \
+            roles/storage.admin; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:${CB_SA}" --role="$role" --quiet 2>/dev/null || true
 done
