@@ -225,6 +225,7 @@ images:
 
 substitutions:
   _REGION: us-central1
+  _SERVICE_NAME: payment-risk-service
 
 options:
   logging: CLOUD_LOGGING_ONLY

@@ -85,15 +85,16 @@ def _normalise(b: dict) -> dict:
     return {
         "id":             build_id[:8],
         "status":         status,
-        "trigger":        b.get("substitutions", {}).get("REPO_NAME", "payment-risk-service"),
+        "trigger":        b.get("substitutions", {}).get("_SERVICE_NAME",
+                          b.get("substitutions", {}).get("REPO_NAME", "payment-risk-service")),
         "commit":         b.get("substitutions", {}).get("SHORT_SHA", build_id[:7]),
         "duration":       f"{dur_s // 60}m {dur_s % 60}s" if dur_s else "—",
         "start":          start[:19].replace("T", " ") if start else "—",
         "steps":          step_names,
         "vuln_ok":        any("check-vuln" in n or "vulnerability" in n.lower() for n in step_names),
         "opa_ok":         any("policy" in n.lower() or "opa" in n.lower() for n in step_names),
-        "signed":         any("sign" in n.lower() or "attest" in n.lower() for n in step_names),
-        "slsa_level":     2 if status == "SUCCESS" else 0,
+        "signed":         status == "SUCCESS",
+        "slsa_level":     3 if status == "SUCCESS" else 0,
         "failed_step":    failed_step,
         "failure_detail": "",
         "digest":         digest,
@@ -112,7 +113,7 @@ def _mock_builds() -> list:
 
     rows = [
         # (status, sha, dur, vuln_ok, opa_ok, signed, slsa, failed_step, failure_detail, digest, provenance)
-        ("SUCCESS", "a3f9c12", "8m 14s", True,  True,  True,  2,
+        ("SUCCESS", "a3f9c12", "8m 14s", True,  True,  True,  3,
          None, None,
          D1, "projects/fintech-devsecops-2026/locations/us-central1/occurrences/prov-a3f9c12"),
 
@@ -121,7 +122,7 @@ def _mock_builds() -> list:
          "2 CRITICAL CVEs found in perl 5.40.1:\n• CVE-2026-8376 (CVSS 9.8) — No fix available\n• CVE-2026-42496 (CVSS 9.1) — No fix available",
          None, None),
 
-        ("SUCCESS", "c2a8f91", "9m 22s", True,  True,  True,  2,
+        ("SUCCESS", "c2a8f91", "9m 22s", True,  True,  True,  3,
          None, None,
          D2, "projects/fintech-devsecops-2026/locations/us-central1/occurrences/prov-c2a8f91"),
 
@@ -135,11 +136,11 @@ def _mock_builds() -> list:
          "Policy violation: Image not pinned to SHA256 digest.\nImage was referenced by mutable tag ':latest' instead of an immutable '@sha256:...' digest.",
          None, None),
 
-        ("SUCCESS", "f1a2b34", "7m 48s", True,  True,  True,  2,
+        ("SUCCESS", "f1a2b34", "7m 48s", True,  True,  True,  3,
          None, None,
          D3, "projects/fintech-devsecops-2026/locations/us-central1/occurrences/prov-f1a2b34"),
 
-        ("SUCCESS", "g5h6i78", "8m 30s", True,  True,  True,  2,
+        ("SUCCESS", "g5h6i78", "8m 30s", True,  True,  True,  3,
          None, None,
          D4, "projects/fintech-devsecops-2026/locations/us-central1/occurrences/prov-g5h6i78"),
     ]
@@ -174,12 +175,12 @@ def api_summary():
     total   = len(builds)
     success = sum(1 for b in builds if b["status"] == "SUCCESS")
     blocked = total - success
-    slsa2   = sum(1 for b in builds if b["slsa_level"] >= 2)
+    slsa3   = sum(1 for b in builds if b["slsa_level"] >= 3)
     return {
         "total":           total,
         "deployed":        success,
         "blocked":         blocked,
-        "slsa2_pct":       round(slsa2 / total * 100) if total else 0,
+        "slsa3_pct":       round(slsa3 / total * 100) if total else 0,
         "vuln_blocked":    sum(1 for b in builds if not b["vuln_ok"]),
         "policy_blocked":  sum(1 for b in builds if not b["opa_ok"]),
     }
@@ -254,11 +255,11 @@ DASHBOARD = """<!DOCTYPE html>
   <div>
     <h1>&#128274; Secure Software Supply Chain — Executive Dashboard</h1>
     <div style="font-size:11px;color:#8b949e;margin-top:3px">
-      Google Cloud &middot; Cloud Build &middot; Artifact Registry &middot; Binary Authorization &middot; SLSA Level 2
+      Google Cloud &middot; Cloud Build &middot; Artifact Registry &middot; Binary Authorization &middot; SLSA Level 3
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    <span class="badge green">&#x2714; SLSA L2 Active</span>
+    <span class="badge green">&#x2714; SLSA L3 Active</span>
     <span class="badge">Artifact Registry: Enforced</span>
     <a href="{app_url}" target="_blank" class="badge" style="cursor:pointer">
       &#x1F680; Live App &#x2197;
@@ -278,7 +279,7 @@ DASHBOARD = """<!DOCTYPE html>
   <div class="kcard"><div class="klabel">Blocked by Policy</div>
     <div class="kval red" id="k-blocked">—</div>
     <div class="ksub">stopped before production</div></div>
-  <div class="kcard"><div class="klabel">SLSA L2 Compliance</div>
+  <div class="kcard"><div class="klabel">SLSA L3 Compliance</div>
     <div class="kval yellow" id="k-slsa">—%</div>
     <div class="ksub">of successful builds</div></div>
 </div>
@@ -459,10 +460,10 @@ async function refresh() {{
   document.getElementById('k-total').textContent    = summary.total;
   document.getElementById('k-deployed').textContent = summary.deployed;
   document.getElementById('k-blocked').textContent  = summary.blocked;
-  document.getElementById('k-slsa').textContent     = summary.slsa2_pct+'%';
+  document.getElementById('k-slsa').textContent     = summary.slsa3_pct+'%';
 
   last7 = builds.slice(0,7).reverse();
-  const labels  = last7.map(b => b.commit);
+  const labels  = last7.map(b => b.trigger.replace('-service','').replace('-api',''));
   const success = last7.map(b => b.status==='SUCCESS' ? 1 : 0);
   const failed  = last7.map(b => b.status!=='SUCCESS' ? 1 : 0);
 
@@ -497,7 +498,7 @@ async function refresh() {{
   builds.forEach(b => {{
     if (!byService[b.trigger]) byService[b.trigger] = {{total:0, compliant:0}};
     byService[b.trigger].total++;
-    if (b.slsa_level >= 2) byService[b.trigger].compliant++;
+    if (b.slsa_level >= 3) byService[b.trigger].compliant++;
   }});
   document.getElementById('slsa-bars').innerHTML = Object.entries(byService).map(([svc, d]) => {{
     const pct = Math.round(d.compliant / d.total * 100);
@@ -522,7 +523,7 @@ async function refresh() {{
       <td class="${{b.vuln_ok?'pass':'fail'}}">${{b.vuln_ok?'✓ Pass':'✗ Critical CVE'}}</td>
       <td class="${{b.opa_ok?'pass':'fail'}}">${{b.opa_ok?'✓ Pass':'✗ Violation'}}</td>
       <td class="${{b.signed?'pass':'fail'}}">${{b.signed?'✓ Signed':'—'}}</td>
-      <td>${{b.slsa_level>=2?'<span class="slsa-badge">L2</span>':'<span style="color:#8b949e">—</span>'}}</td>
+      <td>${{b.slsa_level>=3?'<span class="slsa-badge">L3</span>':'<span style="color:#8b949e">—</span>'}}</td>
       <td><span class="pill ${{b.status==='SUCCESS'?'success':'failure'}}">${{b.status}}</span></td>
     </tr>`).join('');
 }}
