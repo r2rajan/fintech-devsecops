@@ -83,7 +83,7 @@ def _normalise(b: dict) -> dict:
     )
 
     return {
-        "id":             build_id[:8],
+        "id":             build_id,
         "status":         status,
         "trigger":        (b.get("substitutions", {}).get("_SERVICE_NAME")
                           or b.get("substitutions", {}).get("REPO_NAME")
