@@ -12,6 +12,8 @@ import urllib.request, urllib.error
 
 PROJECT_ID  = os.environ.get("PROJECT_ID", "")
 APP_URL     = os.environ.get("APP_URL", "#")   # payment-risk-service URL
+BUILD_ID    = os.environ.get("BUILD_ID", "")
+COMMIT_SHA  = os.environ.get("COMMIT_SHA", "")
 
 app = FastAPI(title="Supply Chain Dashboard")
 
@@ -263,6 +265,7 @@ DASHBOARD = """<!DOCTYPE html>
   <div style="display:flex;gap:8px;align-items:center">
     <span class="badge green">&#x2714; SLSA L3 Active</span>
     <span class="badge">Artifact Registry: Enforced</span>
+    <span class="badge" title="{build_id}">Build: {build_id_short}</span>
     <a href="{app_url}" target="_blank" class="badge" style="cursor:pointer">
       &#x1F680; Live App &#x2197;
     </a>
@@ -547,4 +550,10 @@ setInterval(refresh, 15000);
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return DASHBOARD.format(app_url=APP_URL, project_id=PROJECT_ID or "fintech-devsecops-2026")
+    return DASHBOARD.format(
+        app_url=APP_URL,
+        project_id=PROJECT_ID or "fintech-devsecops-2026",
+        build_id=BUILD_ID or "local",
+        build_id_short=(BUILD_ID or "local")[:8],
+        commit_sha=(COMMIT_SHA or "local")[:8],
+    )
