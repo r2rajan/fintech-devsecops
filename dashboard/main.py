@@ -85,8 +85,10 @@ def _normalise(b: dict) -> dict:
     return {
         "id":             build_id[:8],
         "status":         status,
-        "trigger":        b.get("substitutions", {}).get("_SERVICE_NAME",
-                          b.get("substitutions", {}).get("REPO_NAME", "payment-risk-service")),
+        "trigger":        (b.get("substitutions", {}).get("_SERVICE_NAME")
+                          or b.get("substitutions", {}).get("REPO_NAME")
+                          or "payment-risk-service"
+                          ).replace("fintech-devsecops", "payment-risk-service"),
         "commit":         b.get("substitutions", {}).get("SHORT_SHA", build_id[:7]),
         "duration":       f"{dur_s // 60}m {dur_s % 60}s" if dur_s else "—",
         "start":          start[:19].replace("T", " ") if start else "—",
@@ -112,44 +114,44 @@ def _mock_builds() -> list:
     D4 = "sha256:9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c"
 
     rows = [
-        # (status, sha, dur, vuln_ok, opa_ok, signed, slsa, failed_step, failure_detail, digest, provenance)
-        ("SUCCESS", "a3f9c12", "8m 14s", True,  True,  True,  3,
+        # (status, build_id, commit_sha, dur, vuln_ok, opa_ok, signed, slsa, failed_step, failure_detail, digest, provenance)
+        ("SUCCESS", "4a7f1c2e", "a3f9c12", "8m 14s", True,  True,  True,  3,
          None, None,
          D1, "projects/fintech-devsecops-2026/locations/us-central1/occurrences/prov-a3f9c12"),
 
-        ("FAILURE", "b7e1d45", "4m 02s", False, False, False, 0,
+        ("FAILURE", "9b2e5d8a", "b7e1d45", "4m 02s", False, False, False, 0,
          "check-vulnerabilities",
          "2 CRITICAL CVEs found in perl 5.40.1:\n• CVE-2026-8376 (CVSS 9.8) — No fix available\n• CVE-2026-42496 (CVSS 9.1) — No fix available",
          None, None),
 
-        ("SUCCESS", "c2a8f91", "9m 22s", True,  True,  True,  3,
+        ("SUCCESS", "3c6f9e1b", "c2a8f91", "9m 22s", True,  True,  True,  3,
          None, None,
          D2, "projects/fintech-devsecops-2026/locations/us-central1/occurrences/prov-c2a8f91"),
 
-        ("FAILURE", "d5f3e27", "1m 08s", False, False, False, 0,
+        ("FAILURE", "7d4a0c5f", "d5f3e27", "1m 08s", False, False, False, 0,
          "unit-tests",
          "Risk scoring assertion failed.\nExpected: CRITICAL  Got: HIGH\nTest transaction: £9,000 · crypto · NG · online",
          None, None),
 
-        ("FAILURE", "e9b7c63", "6m 44s", True,  False, False, 0,
+        ("FAILURE", "2e8b3f6c", "e9b7c63", "6m 44s", True,  False, False, 0,
          "policy-check",
          "Policy violation: Image not pinned to SHA256 digest.\nImage was referenced by mutable tag ':latest' instead of an immutable '@sha256:...' digest.",
          None, None),
 
-        ("SUCCESS", "f1a2b34", "7m 48s", True,  True,  True,  3,
+        ("SUCCESS", "5f1d7a9e", "f1a2b34", "7m 48s", True,  True,  True,  3,
          None, None,
          D3, "projects/fintech-devsecops-2026/locations/us-central1/occurrences/prov-f1a2b34"),
 
-        ("SUCCESS", "g5h6i78", "8m 30s", True,  True,  True,  3,
+        ("SUCCESS", "8a3e2b4d", "g5h6i78", "8m 30s", True,  True,  True,  3,
          None, None,
          D4, "projects/fintech-devsecops-2026/locations/us-central1/occurrences/prov-g5h6i78"),
     ]
 
     builds = []
-    for i, (st, sha, dur, v, o, s, lvl, fs, fd, digest, prov) in enumerate(rows):
+    for i, (st, bid, sha, dur, v, o, s, lvl, fs, fd, digest, prov) in enumerate(rows):
         t = (base - dt.timedelta(hours=i * 2)).isoformat()[:19].replace("T", " ")
         builds.append({
-            "id": sha, "status": st, "trigger": "payment-risk-service", "commit": sha,
+            "id": bid, "status": st, "trigger": "payment-risk-service", "commit": sha,
             "duration": dur, "start": t,
             "steps": ["unit-tests", "build-app", "push-app", "get-digest",
                       "check-vulnerabilities", "policy-check", "deploy-app"],
@@ -360,12 +362,20 @@ function showBuildModal(build) {{
                 border:1px solid ${{hCol}};margin-bottom:18px">
       <span style="color:${{hCol}};font-weight:600;font-size:14px">${{hIcon}} ${{hLabel}}</span>
       <span style="color:#8b949e;font-size:12px;font-family:monospace">
-        commit ${{build.commit}} &nbsp;&middot;&nbsp; ${{build.duration}}
+        build ${{build.id}} &nbsp;&middot;&nbsp; ${{build.duration}}
       </span>
     </div>`;
 
   if (isSuccess) {{
     html += `
+      <div style="margin-bottom:16px">
+        <div style="font-size:10px;color:#8b949e;text-transform:uppercase;
+                    letter-spacing:.5px;margin-bottom:6px">Build ID</div>
+        <div style="font-family:monospace;font-size:13px;color:#c9d1d9;background:#0d1117;
+                    padding:10px 12px;border-radius:6px;line-height:1.6">
+          ${{build.id}}
+        </div>
+      </div>
       <div style="margin-bottom:16px">
         <div style="font-size:10px;color:#8b949e;text-transform:uppercase;
                     letter-spacing:.5px;margin-bottom:6px">Git Commit SHA</div>

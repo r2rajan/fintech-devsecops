@@ -94,7 +94,7 @@ PAGE = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Payment Risk Scoring — SecureFinTech</title>
+<title>NovaPay - Payment Risk Scoring Service</title>
 <style>
   *{{margin:0;padding:0;box-sizing:border-box}}
   body{{font-family:'Google Sans',Arial,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}}
@@ -136,13 +136,13 @@ PAGE = """<!DOCTYPE html>
 <body>
 <header>
   <div>
-    <h1>&#128274; Payment Risk Scoring — SecureFinTech</h1>
+    <h1>&#128274; NovaPay - Payment Risk Scoring Service</h1>
     <div style="font-size:11px;color:#475569;margin-top:3px">
       Deployed via Cloud Build · SLSA Provenance Verified
     </div>
   </div>
   <div style="display:flex;gap:8px">
-    <span class="badge green">&#x2714; SLSA L2 Compliant</span>
+    <span class="badge green">&#x2714; SLSA L3 Compliant</span>
     <span class="badge">Build: {build_id}</span>
   </div>
 </header>
