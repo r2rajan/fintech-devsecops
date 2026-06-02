@@ -209,7 +209,7 @@ steps:
           --region=$_REGION \
           --image=$_REGION-docker.pkg.dev/$PROJECT_ID/fintech-apps/supply-chain-dashboard:latest \
           --allow-unauthenticated \
-          --set-env-vars="PROJECT_ID=$PROJECT_ID,APP_URL=$app_url,BUILD_ID=$BUILD_ID,COMMIT_SHA=$SHORT_SHA" \
+          --set-env-vars="PROJECT_ID=$PROJECT_ID,APP_URL=$app_url,BUILD_ID=$BUILD_ID,COMMIT_SHA=$SHORT_SHA,REGION=$_REGION" \
           --min-instances=0 \
           --max-instances=2 \
           --memory=256Mi \

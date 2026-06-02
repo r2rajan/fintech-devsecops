@@ -14,6 +14,7 @@ PROJECT_ID  = os.environ.get("PROJECT_ID", "")
 APP_URL     = os.environ.get("APP_URL", "#")   # payment-risk-service URL
 BUILD_ID    = os.environ.get("BUILD_ID", "")
 COMMIT_SHA  = os.environ.get("COMMIT_SHA", "")
+REGION      = os.environ.get("REGION", "us-central1")
 
 app = FastAPI(title="Supply Chain Dashboard")
 
@@ -31,22 +32,31 @@ def _token() -> str:
 
 
 def _cb_builds(limit: int = 20) -> list:
-    """Fetch recent Cloud Build runs via REST."""
+    """Fetch recent Cloud Build runs via REST, regional endpoint first."""
     if not PROJECT_ID:
         return _mock_builds()
-    try:
-        url = (
-            f"https://cloudbuild.googleapis.com/v1/projects/{PROJECT_ID}/builds"
-            f"?pageSize={limit}&filter=tags%3Dsupply-chain"
-        )
-        req = urllib.request.Request(
-            url, headers={"Authorization": f"Bearer {_token()}"}
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-        return [_normalise(b) for b in data.get("builds", [])]
-    except Exception:
+    token = _token()
+    if not token:
         return _mock_builds()
+    headers = {"Authorization": f"Bearer {token}"}
+    filter_param = "tags%3Dsupply-chain"
+    urls = [
+        f"https://cloudbuild.googleapis.com/v1/projects/{PROJECT_ID}/locations/{REGION}/builds"
+        f"?pageSize={limit}&filter={filter_param}",
+        f"https://cloudbuild.googleapis.com/v1/projects/{PROJECT_ID}/builds"
+        f"?pageSize={limit}&filter={filter_param}",
+    ]
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            builds = [_normalise(b) for b in data.get("builds", [])]
+            if builds:
+                return builds
+        except Exception:
+            continue
+    return _mock_builds()
 
 
 def _normalise(b: dict) -> dict:
