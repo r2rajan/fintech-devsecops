@@ -1,4 +1,5 @@
-FROM python:3.11-alpine
+# DEMO: python:3.8-alpine has known critical CVEs — triggers Gate 2. Restore to 3.11-alpine for green build.
+FROM python:3.8-alpine
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY requirements.txt .
