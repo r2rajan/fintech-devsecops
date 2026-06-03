@@ -344,6 +344,7 @@ tick(); setInterval(tick,1000);
 let outChart;
 let last7 = [];
 const PROJECT = '{project_id}';
+const REGION  = '{region}';
 
 const STEP_ORDER = [
   'unit-tests','build-app','push-app','get-digest',
@@ -397,13 +398,22 @@ function showBuildModal(build) {{
           ${{build.commit}}
         </div>
       </div>
-      <div style="margin-bottom:20px">
+      <div style="margin-bottom:16px">
         <div style="font-size:10px;color:#8b949e;text-transform:uppercase;
                     letter-spacing:.5px;margin-bottom:6px">SLSA Provenance</div>
         <div style="font-family:monospace;font-size:11px;color:#8b949e;background:#0d1117;
                     padding:10px 12px;border-radius:6px;word-break:break-all;line-height:1.6">
           ${{build.provenance || '—'}}
         </div>
+      </div>
+      <div style="margin-bottom:20px">
+        <a href="https://console.cloud.google.com/cloud-build/builds;region=${{REGION}}/${{build.id}}?project=${{PROJECT}}"
+           target="_blank"
+           style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#58a6ff;
+                  border:1px solid #1f6feb;border-radius:6px;padding:8px 14px;
+                  text-decoration:none;background:#1f3a6e22">
+          &#x1F517; View Build in Cloud Build &#x2197;
+        </a>
       </div>`;
   }} else {{
     html += `
@@ -427,8 +437,8 @@ function showBuildModal(build) {{
         </div>`;
     }}
     const linkUrl = build.failed_step === 'check-vulnerabilities'
-      ? `https://console.cloud.google.com/artifacts/docker/${{PROJECT}}/us-central1/fintech-apps/payment-risk-service?project=${{PROJECT}}`
-      : `https://console.cloud.google.com/cloud-build/builds?project=${{PROJECT}}`;
+      ? `https://console.cloud.google.com/artifacts/docker/${{PROJECT}}/${{REGION}}/fintech-apps/payment-risk-service?project=${{PROJECT}}`
+      : `https://console.cloud.google.com/cloud-build/builds;region=${{REGION}}/${{build.id}}?project=${{PROJECT}}`;
     const linkLabel = build.failed_step === 'check-vulnerabilities'
       ? '&#x1F517; View Critical CVEs in Artifact Registry &#x2197;'
       : '&#x1F517; View Build Logs in Cloud Build &#x2197;';
@@ -566,4 +576,5 @@ def index():
         build_id=BUILD_ID or "local",
         build_id_short=(BUILD_ID or "local")[:8],
         commit_sha=(COMMIT_SHA or "local")[:8],
+        region=REGION,
     )
