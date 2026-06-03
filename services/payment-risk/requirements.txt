@@ -1,3 +1,4 @@
 fastapi==0.115.0
 uvicorn==0.30.6
 pydantic==2.7.4
+Pillow==9.0.0  # DEMO: intentional critical CVE (CVE-2022-22817, CVSS 9.8) — remove to restore green build
